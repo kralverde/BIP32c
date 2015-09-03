@@ -3,12 +3,13 @@
 #define HIERARCHICALDETERMINISTICWALLETS_HDWALLET_H
 
 #define SERIALIZED_KEY_BUFFER_LEN 112
+#define VERSION_IDENTIFIER_LEN 4
 
 #include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
-    uint8_t version[4];
+    uint8_t version[VERSION_IDENTIFIER_LEN];
     uint8_t depth;
     uint8_t parent_fingerprint[4];
     uint8_t child_number[4];
@@ -21,12 +22,19 @@ enum KEY_VERSIONS {
     KEY_VERSION_MAINNET_PRIVATE = 1,
     KEY_VERSION_TESTNET_PUBLIC = 2,
     KEY_VERSION_TESTNET_PRIVATE = 3,
+enum {
+    HDW_KEY_TYPE_PUBLIC = 0,
+    HDW_KEY_TYPE_PRIVATE = 1
+};
+enum {
+    HDW_KEY_NET_MAINNET = 0,
+    HDW_KEY_NET_TESTNET = 2
 };
 
 /*
  * Contains the values of version prefixes
  */
-extern const uint8_t KEY_VERSIONS_VALUES[4][4];
+extern const uint8_t KEY_VERSIONS_VALUES[4][VERSION_IDENTIFIER_LEN];
 
 /*
  * Generates the Master Node from a `seed` and puts it into `key`
@@ -45,5 +53,13 @@ int HDW_serialize_key(HDW_key_t *key,
 
 int HDW_derivate_private_child(HDW_key_t parent_key, HDW_key_t child_key);
 int HDW_derivate_public_child(HDW_key_t parent_key, HDW_key_t child_key);
+/*
+ * Generates the extended public key from an extended private key
+ * If provided private key is in fact public, the content pointed by `private_key` is copied to `public key`
+ * Returns: 0 on failure
+ *          1 on success
+ */
+
+int HDW_derive_public(HDW_key_t *private_key, HDW_key_t *public_key);
 
 #endif //HIERARCHICALDETERMINISTICWALLETS_HDWALLET_H
