@@ -244,6 +244,9 @@ int HDW_derive_private_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32
 
     if (parent_key_is_private) {
 
+        HDW_key_t parent_public_key;
+        HDW_derive_public(parent_key, &parent_public_key);
+
         HMAC_CTX hmac_ctx;
         HMAC_Init(&hmac_ctx, parent_key->chain_code, sizeof(parent_key->chain_code), EVP_sha512());
 
@@ -251,15 +254,13 @@ int HDW_derive_private_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32
 
         if (child_key_is_hardened) {
             HMAC_Update(&hmac_ctx, parent_key->key_data, sizeof(parent_key->key_data));
-
-            int32_t index_be = htobe32(index);
-            HMAC_Update(&hmac_ctx, (const unsigned char *) &index_be, sizeof(int32_t));
-
-
         }
         else {
-            // Todo: Non-hardened child derivation
+            HMAC_Update(&hmac_ctx, parent_public_key.key_data, sizeof(parent_public_key.key_data));
         }
+
+        int32_t index_be = htobe32(index);
+        HMAC_Update(&hmac_ctx, (const unsigned char *) &index_be, sizeof(int32_t));
 
         HMAC_Final(&hmac_ctx, hash_result, &hash_result_len);
 
