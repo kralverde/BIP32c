@@ -8,6 +8,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <openssl/ripemd.h>
+
+
 typedef struct {
     uint8_t version[VERSION_IDENTIFIER_LEN];
     uint8_t depth;
@@ -17,11 +20,6 @@ typedef struct {
     uint8_t key_data[33];
 } __attribute__ ((packed)) HDW_key_t;
 
-enum KEY_VERSIONS {
-    KEY_VERSION_MAINNET_PUBLIC = 0,
-    KEY_VERSION_MAINNET_PRIVATE = 1,
-    KEY_VERSION_TESTNET_PUBLIC = 2,
-    KEY_VERSION_TESTNET_PRIVATE = 3,
 enum {
     HDW_KEY_TYPE_PUBLIC = 0,
     HDW_KEY_TYPE_PRIVATE = 1
@@ -51,8 +49,6 @@ int HDW_serialize_key(HDW_key_t *key,
                       uint8_t *destination,
                       size_t *destination_len);
 
-int HDW_derivate_private_child(HDW_key_t parent_key, HDW_key_t child_key);
-int HDW_derivate_public_child(HDW_key_t parent_key, HDW_key_t child_key);
 /*
  * Generates the extended public key from an extended private key
  * If provided private key is in fact public, the content pointed by `private_key` is copied to `public key`
@@ -61,5 +57,17 @@ int HDW_derivate_public_child(HDW_key_t parent_key, HDW_key_t child_key);
  */
 
 int HDW_derive_public(HDW_key_t *private_key, HDW_key_t *public_key);
+
+/*
+ * Derives a private
+ * Returns: 0 on failure
+ *          1 on success
+ */
+int HDW_derive_private_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32_t index);
+int HDW_derive_public_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32_t index);
+
+int HDW_hash160(uint8_t *input,
+                uint32_t input_len,
+                uint8_t output[RIPEMD160_DIGEST_LENGTH]);
 
 #endif //HIERARCHICALDETERMINISTICWALLETS_HDWALLET_H

@@ -22,6 +22,10 @@ int HDW_double_SHA256(uint8_t *input,
                       uint32_t input_len,
                       uint8_t output[SHA256_DIGEST_LENGTH]);
 
+int HDW_hash160(uint8_t *input,
+                uint32_t input_len,
+                uint8_t output[RIPEMD160_DIGEST_LENGTH]);
+
 
 int HDW_generate_master_node(uint8_t *seed,
                              size_t seed_len,
@@ -163,6 +167,35 @@ int HDW_public_data_from_private_data(uint8_t *key_data, size_t key_data_len, BI
     return res;
 
 }
+
+int HDW_calculate_key_identifier(HDW_key_t *key, uint8_t identifier[RIPEMD160_DIGEST_LENGTH]) {
+
+    int key_type = HDW_get_key_type(key);
+    bool key_is_private = (key_type & HDW_KEY_TYPE_PRIVATE) != 0;
+
+
+    BIGNUM *serialized_public_key = BN_new();
+
+    uint8_t *public_key_data;
+    uint8_t tmp_public_key[33];
+
+    if (key_is_private) {
+        // We must calculate the public key
+        HDW_public_data_from_private_data(key->key_data + 1, sizeof(key->key_data) - 1, serialized_public_key);
+        BN_bn2bin(serialized_public_key, tmp_public_key);
+        public_key_data = tmp_public_key;
+    }
+    else {
+        public_key_data = key->key_data;
+    }
+
+    HDW_hash160(public_key_data, 33, identifier);
+
+    return 1;
+
+
+}
+
 int HDW_derive_public (HDW_key_t *private_key, HDW_key_t *public_key) {
 
 
@@ -193,6 +226,108 @@ int HDW_derive_public (HDW_key_t *private_key, HDW_key_t *public_key) {
 
     return res;
 }
+
+
+int HDW_derive_private_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32_t index) {
+
+    // Todo: Watch for key depth overflow
+
+    int res = 1;
+
+    int parent_key_type = HDW_get_key_type(parent_key);
+    bool parent_key_is_private = (parent_key_type & HDW_KEY_TYPE_PRIVATE) != 0;
+
+    uint8_t hash_result[SHA512_DIGEST_LENGTH];
+    uint32_t hash_result_len = sizeof(hash_result);
+
+    EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_secp256k1);
+
+    if (parent_key_is_private) {
+
+        HMAC_CTX hmac_ctx;
+        HMAC_Init(&hmac_ctx, parent_key->chain_code, sizeof(parent_key->chain_code), EVP_sha512());
+
+        bool child_key_is_hardened = index > INT32_MAX;
+
+        if (child_key_is_hardened) {
+            HMAC_Update(&hmac_ctx, parent_key->key_data, sizeof(parent_key->key_data));
+
+            int32_t index_be = htobe32(index);
+            HMAC_Update(&hmac_ctx, (const unsigned char *) &index_be, sizeof(int32_t));
+
+
+        }
+        else {
+            // Todo: Non-hardened child derivation
+        }
+
+        HMAC_Final(&hmac_ctx, hash_result, &hash_result_len);
+
+        // First half is part of ki, second part is chain code
+
+        BIGNUM *temp_parent_key = BN_new();
+        BIGNUM *temp_child_key = BN_new();
+        BIGNUM *curve_order = BN_new();
+
+        BN_bin2bn(parent_key->key_data + 1, sizeof(parent_key->key_data) - 1, temp_parent_key);
+        BN_bin2bn(hash_result, SHA512_DIGEST_LENGTH / 2, temp_child_key);
+
+        EC_GROUP_get_order(group, curve_order, NULL);
+
+        if (BN_cmp(temp_child_key, curve_order) >= 0 || BN_is_zero(temp_child_key)) {
+            // Key is invalid
+            res = 0;
+            goto cleanup0;
+        }
+
+        BN_CTX *bn_ctx;
+        bn_ctx = BN_CTX_new();
+
+        BN_mod_add(temp_child_key, temp_child_key, temp_parent_key, curve_order, bn_ctx);
+
+        // Put the private key in.
+        BN_bn2bin(temp_child_key, child_key->key_data + 1);
+        child_key->key_data[0] = 0;
+
+        // Put the version in.
+        memcpy(child_key->version, parent_key->version, sizeof(child_key->version));
+
+        // Put the depth in.
+        child_key->depth = (uint8_t) (parent_key->depth + 1);
+
+        // Put the child number in.
+        *((uint32_t *) &(child_key->child_number)) = htobe32(index);
+
+        // Generate parent key identifier and put it on the key we are generating.
+        uint8_t parent_fingerprint[RIPEMD160_DIGEST_LENGTH];
+        HDW_calculate_key_identifier(parent_key, parent_fingerprint);
+        memcpy(child_key->parent_fingerprint, parent_fingerprint, sizeof(child_key->parent_fingerprint));
+
+        // Put the chain code in.
+        memcpy(child_key->chain_code, hash_result + SHA512_DIGEST_LENGTH / 2, sizeof(child_key->chain_code));
+
+
+        // Let's cleanup our current scope.
+        BN_free(temp_parent_key);
+        BN_free(temp_child_key);
+        BN_free(curve_order);
+        BN_CTX_free(bn_ctx);
+    }
+    else {
+        fprintf(stderr, "There is no such thing as 'public parent' -> 'private child' derivation.\n");
+        res = 0;
+        goto cleanup0;
+    }
+
+    cleanup0:
+    EC_GROUP_free(group);
+
+    return res;
+};
+
+int HDW_derive_public_child(HDW_key_t *parent_key, HDW_key_t *child_key, uint32_t index) {
+
+};
 
 int HDW_double_SHA256(uint8_t *input,
                       uint32_t input_len,
@@ -229,5 +364,30 @@ int HDW_double_SHA256(uint8_t *input,
     problem:
     memset(output, 0, SHA256_DIGEST_LENGTH);
     fprintf(stderr, "[ERR] Problem in %s\n", __func__);
+    return res;
+}
+
+int HDW_hash160(uint8_t *input,
+                uint32_t input_len,
+                uint8_t output[RIPEMD160_DIGEST_LENGTH]) {
+
+    int res = 1;
+    uint8_t intermediate_hash[SHA256_DIGEST_LENGTH];
+
+    // Digest input with SHA256
+    SHA256_CTX sha256_ctx;
+    SHA256_Init(&sha256_ctx);
+    res &= SHA256_Init(&sha256_ctx);
+    res &= SHA256_Update(&sha256_ctx, input, input_len);
+    res &= SHA256_Final(intermediate_hash, &sha256_ctx);
+
+
+    // Digest previous digest with RIPEMD160
+    RIPEMD160_CTX ripemd160_ctx;
+    RIPEMD160_Init(&ripemd160_ctx);
+    res &= RIPEMD160_Init(&ripemd160_ctx);
+    res &= RIPEMD160_Update(&ripemd160_ctx, intermediate_hash, SHA256_DIGEST_LENGTH);
+    res &= RIPEMD160_Final(output, &ripemd160_ctx);
+
     return res;
 }
