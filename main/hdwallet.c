@@ -334,37 +334,26 @@ int HDW_double_SHA256(uint8_t *input,
                       uint32_t input_len,
                       uint8_t output[SHA256_DIGEST_LENGTH]) {
 
-    int res;
+    int res = 1;
     uint8_t intermediate_hash[SHA256_DIGEST_LENGTH];
 
     SHA256_CTX sha256_ctx;
 
     // Hashing: first pass
-    res = SHA256_Init(&sha256_ctx);
-    if (res != 1) { goto problem; }
+    res &= SHA256_Init(&sha256_ctx);
+    res &= SHA256_Update(&sha256_ctx, input, input_len);
+    res &= SHA256_Final(intermediate_hash, &sha256_ctx);
 
-    res = SHA256_Update(&sha256_ctx, input, input_len);
-    if (res != 1) { goto problem; }
+    // Hashing: second pass generated_string_len
+    res &= SHA256_Init(&sha256_ctx);
+    res &= SHA256_Update(&sha256_ctx, intermediate_hash, sizeof(intermediate_hash));
+    res &= SHA256_Final(output, &sha256_ctx);
 
-    res = SHA256_Final(intermediate_hash, &sha256_ctx);
-    if (res != 1) { goto problem; }
 
+    if (!res) {
+        memset(output, 0, SHA256_DIGEST_LENGTH);
+    }
 
-    // Hashing: second passgenerated_string_len
-    res = SHA256_Init(&sha256_ctx);
-    if (res != 1) { goto problem; }
-
-    res = SHA256_Update(&sha256_ctx, intermediate_hash, sizeof(intermediate_hash));
-    if (res != 1) { goto problem; }
-
-    res = SHA256_Final(output, &sha256_ctx);
-    if (res != 1) { goto problem; }
-
-    return true;
-
-    problem:
-    memset(output, 0, SHA256_DIGEST_LENGTH);
-    fprintf(stderr, "[ERR] Problem in %s\n", __func__);
     return res;
 }
 
@@ -375,20 +364,23 @@ int HDW_hash160(uint8_t *input,
     int res = 1;
     uint8_t intermediate_hash[SHA256_DIGEST_LENGTH];
 
-    // Digest input with SHA256
+    // Hashing input with SHA256
     SHA256_CTX sha256_ctx;
     SHA256_Init(&sha256_ctx);
     res &= SHA256_Init(&sha256_ctx);
     res &= SHA256_Update(&sha256_ctx, input, input_len);
     res &= SHA256_Final(intermediate_hash, &sha256_ctx);
 
-
-    // Digest previous digest with RIPEMD160
+    // Hashing previous digest with RIPEMD160
     RIPEMD160_CTX ripemd160_ctx;
     RIPEMD160_Init(&ripemd160_ctx);
     res &= RIPEMD160_Init(&ripemd160_ctx);
     res &= RIPEMD160_Update(&ripemd160_ctx, intermediate_hash, SHA256_DIGEST_LENGTH);
     res &= RIPEMD160_Final(output, &ripemd160_ctx);
+
+    if (!res) {
+        memset(output, 0, RIPEMD160_DIGEST_LENGTH);
+    }
 
     return res;
 }
